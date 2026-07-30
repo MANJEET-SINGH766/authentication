@@ -60,6 +60,75 @@ async function runTests() {
   console.log('Body:', meData);
   console.log('--------------------------------------------------\n');
 
+  // 3.1 Fetch active sessions
+  console.log('[3.1] Fetching active sessions (/sessions) WITH session cookie...');
+  const sessionsRes = await fetch(`${BASE_URL}/sessions`, {
+    headers: { Cookie: cookie }
+  });
+  const sessionsData = await sessionsRes.json();
+  console.log(`Status: ${sessionsRes.status}`);
+  console.log('Active sessions:', sessionsData);
+  console.log('--------------------------------------------------\n');
+
+  // 3.2 Simulate second user login from another "device"
+  console.log('[3.2] Logging in user again from a simulated second device (iPhone)...');
+  const secondLoginRes = await fetch(`${BASE_URL}/login`, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)'
+    },
+    body: JSON.stringify(testUser)
+  });
+  const secondLoginData = await secondLoginRes.json();
+  console.log(`Status: ${secondLoginRes.status}`);
+  
+  const rawSecondCookie = secondLoginRes.headers.get('set-cookie');
+  const secondCookie = rawSecondCookie ? rawSecondCookie.split(';')[0] : null;
+  console.log('Second Cookie Extracted:', secondCookie);
+  console.log('--------------------------------------------------\n');
+
+  // 3.3 Fetch active sessions again (should list two sessions)
+  console.log('[3.3] Fetching active sessions (/sessions) to verify concurrent sessions...');
+  const multiSessionsRes = await fetch(`${BASE_URL}/sessions`, {
+    headers: { Cookie: cookie }
+  });
+  const multiSessionsData = await multiSessionsRes.json();
+  console.log(`Status: ${multiSessionsRes.status}`);
+  console.log(`Sessions listed (expected 2): ${multiSessionsData.sessions ? multiSessionsData.sessions.length : 0}`);
+  console.log('Sessions details:', multiSessionsData.sessions);
+  console.log('--------------------------------------------------\n');
+
+  // 3.4 Revoke the second session from the first session
+  if (multiSessionsData.sessions && multiSessionsData.sessions.length > 0) {
+    const secondSessionObj = multiSessionsData.sessions.find(s => s.userAgent === 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)');
+    if (secondSessionObj) {
+      console.log(`[3.4] Revoking second session (${secondSessionObj.sessionId}) using first session...`);
+      const revokeRes = await fetch(`${BASE_URL}/sessions/${secondSessionObj.sessionId}`, {
+        method: 'DELETE',
+        headers: { Cookie: cookie }
+      });
+      const revokeData = await revokeRes.json();
+      console.log(`Status: ${revokeRes.status}`);
+      console.log('Body:', revokeData);
+      console.log('--------------------------------------------------\n');
+
+      // 3.5 Verify the second session is now revoked (accessing /me with second cookie should fail)
+      console.log('[3.5] Fetching current user details (/me) using revoked second session cookie...');
+      const secondMeRes = await fetch(`${BASE_URL}/me`, {
+        headers: { Cookie: secondCookie }
+      });
+      const secondMeData = await secondMeRes.json();
+      console.log(`Status (Expected 401): ${secondMeRes.status}`);
+      console.log('Body:', secondMeData);
+      console.log('--------------------------------------------------\n');
+    } else {
+      console.log('❌ FAILED: Second session with custom User-Agent not found in active sessions list!');
+    }
+  } else {
+    console.log('❌ FAILED: Active sessions list is empty!');
+  }
+
   // 4. Access Protected Route (/me) WITHOUT session cookie
   console.log('[4] Fetching current user details (/me) WITHOUT session cookie...');
   const anonRes = await fetch(`${BASE_URL}/me`);
